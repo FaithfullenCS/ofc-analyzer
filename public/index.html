@@ -707,220 +707,235 @@
             return /^\d{10}$|^\d{12}$/.test(inn);
         }
 
-        // Отображение финансовых данных
-        function displayFinancialData(data) {
-            const container = document.getElementById('financialData');
-            
-            const companyName = data.company?.data?.name || 'Компания не найдена';
-            const inn = data.company?.data?.inn || '';
-            const status = data.company?.data?.status === '1-' ? 'Активна' : 'Ликвидирована';
+        // ✅ ИСПРАВЛЕНИЕ 2: Исправленная функция displayFinancialData
+function displayFinancialData(data) {
+    const container = document.getElementById('financialData');
 
-            let html = `
-                <div class="company-header">
-                    <h3>${escapeHtml(companyName)}</h3>
-                    <div class="company-info">
-                        <div>ИНН: ${inn}</div>
-                        <div>Статус: ${status}</div>
-                    </div>
-                </div>
-            `;
+    // Правильный путь к данным компании
+    const companyData = data.company?.data;
+    const companyName = companyData?.НаимСокр || companyData?.НаимПолн || 'Неизвестная компания';
+    const inn = companyData?.ИНН || 'Нет данных';
+    const status = companyData?.Статус || 'Нет данных';
 
-            if (data.finances?.data) {
-                const years = Object.keys(data.finances.data).filter(key => key !== 'bo.nalog.ru' && key !== 'company');
-                
-                if (years.length > 0) {
-                    html += '<div class="scroll-container">';
-                    html += '<table><thead><tr><th>Показатель</th>';
-                    years.forEach(year => {
-                        html += `<th>${year}</th>`;
-                    });
-                    html += '</tr></thead><tbody>';
+    let html = `
+        <div class="company-header">
+            <h3>${escapeHtml(companyName)}</h3>
+            <div class="company-info">
+                <div>ИНН: ${inn}</div>
+                <div>Статус: ${status}</div>
+            </div>
+        </div>
+    `;
 
-                    // Основные показатели
-                    const indicators = [
-                        { code: '1210', name: 'Запасы' },
-                        { code: '1230', name: 'Дебиторская задолженность' },
-                        { code: '1520', name: 'Кредиторская задолженность' },
-                        { code: '2110', name: 'Выручка' },
-                        { code: '2120', name: 'Себестоимость' },
-                        { code: '2400', name: 'Чистая прибыль' },
-                        { code: '1600', name: 'Итого активы' },
-                        { code: '1300', name: 'Капитал и резервы' }
-                    ];
+    if (data.finances?.data) {
+        const years = Object.keys(data.finances.data)
+            .filter(key => key !== 'bo.nalog.ru' && key !== 'company')
+            .sort();
 
-                    indicators.forEach(indicator => {
-                        html += `<tr><td>${indicator.name}</td>`;
-                        years.forEach(year => {
-                            const value = data.finances.data[year]?.[indicator.code] || 0;
-                            html += `<td>${formatNumber(value)}</td>`;
-                        });
-                        html += '</tr>';
-                    });
+        if (years.length > 0) {
+            html += '<div class="scroll-container">';
+            html += '<table><thead><tr><th>Показатель</th>';
 
-                    html += '</tbody></table></div>';
-                } else {
-                    html += '<div class="empty-state"><div>Нет данных финансовой отчетности</div></div>';
-                }
-            }
+            years.forEach(year => {
+                html += `<th>${year}</th>`;
+            });
 
-            container.innerHTML = html;
+            html += '</tr></thead><tbody>';
+
+            const indicators = [
+                { code: '1210', name: 'Запасы' },
+                { code: '1230', name: 'Дебиторская задолженность' },
+                { code: '1250', name: 'Денежные средства' },
+                { code: '1200', name: 'Оборотные активы' },
+                { code: '1520', name: 'Кредиторская задолженность' },
+                { code: '1500', name: 'Краткосрочные обязательства' },
+                { code: '2110', name: 'Выручка' },
+                { code: '2120', name: 'Себестоимость' },
+                { code: '2400', name: 'Чистая прибыль' },
+                { code: '1600', name: 'Активы (баланс)' },
+                { code: '1300', name: 'Капитал и резервы' }
+            ];
+
+            indicators.forEach(indicator => {
+                html += `<tr><td>${indicator.name}</td>`;
+                years.forEach(year => {
+                    const value = getExtendedValue(data.finances.data[year], indicator.code);
+                    html += `<td>${formatNumber(value)}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table></div>';
+        } else {
+            html += '<div class="empty-state"><div>📊</div><div>Нет данных о финансовой отчётности</div></div>';
         }
+    }
 
-        // Отображение результатов анализа
-        function displayAnalysis(data) {
-            const container = document.getElementById('analysisResults');
-            
-            if (!data.finances?.data) {
-                container.innerHTML = '<div class="empty-state"><div>Нет данных для анализа</div></div>';
-                return;
-            }
+    container.innerHTML = html;
+}
 
-            const years = Object.keys(data.finances.data).filter(key => key !== 'bo.nalog.ru' && key !== 'company').sort();
-            
-            if (years.length < 2) {
-                container.innerHTML = '<div class="empty-state"><div>Недостаточно данных для анализа (требуется минимум 2 года)</div></div>';
-                return;
-            }
+// ✅ ИСПРАВЛЕНИЕ 3: Исправленная функция displayAnalysis с коэффициентами ликвидности
+function displayAnalysis(data) {
+    const container = document.getElementById('analysisResults');
 
-            const latestYear = years[years.length - 1];
-            const previousYear = years[years.length - 2];
-            
-            const currentData = data.finances.data[latestYear];
-            const prevData = data.finances.data[previousYear];
+    if (!data.finances?.data) {
+        container.innerHTML = '<div class="empty-state"><div>📊</div><div>Нет данных для анализа</div></div>';
+        return;
+    }
 
-            // Расчет показателей ОФЦ
-            const inventory = parseFloat(currentData['1210']) || 0;
-            const inventoryPrev = parseFloat(prevData['1210']) || 0;
-            const receivables = parseFloat(currentData['1230']) || 0;
-            const receivablesPrev = parseFloat(prevData['1230']) || 0;
-            const payables = parseFloat(currentData['1520']) || 0;
-            const payablesPrev = parseFloat(prevData['1520']) || 0;
-            const revenue = parseFloat(currentData['2110']) || 0;
-            const cogs = parseFloat(currentData['2120']) || 0;
+    const years = Object.keys(data.finances.data)
+        .filter(key => key !== 'bo.nalog.ru' && key !== 'company')
+        .sort();
 
-            const avgInventory = (inventory + inventoryPrev) / 2;
-            const avgReceivables = (receivables + receivablesPrev) / 2;
-            const avgPayables = (payables + payablesPrev) / 2;
+    if (years.length < 2) {
+        container.innerHTML = '<div class="empty-state"><div>📊</div><div>Для расчёта требуется минимум 2 года отчётности</div></div>';
+        return;
+    }
 
-            const poi = cogs !== 0 ? (365 * avgInventory) / cogs : 0;
-            const ppd = revenue !== 0 ? (365 * avgReceivables) / revenue : 0;
-            const ppa = cogs !== 0 ? (365 * avgPayables) / cogs : 0;
-            const ofc = poi + ppd - ppa;
+    const latestYear = years[years.length - 1];
+    const previousYear = years[years.length - 2];
 
-            // Коэффициенты ликвидности
-            const currentAssets = parseFloat(currentData['1200']) || 0;
-            const currentLiabilities = parseFloat(currentData['1500']) || 0;
-            const cash = parseFloat(currentData['1250']) || 0;
+    const currentData = data.finances.data[latestYear];
+    const prevData = data.finances.data[previousYear];
 
-            const currentRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0;
-            const quickRatio = currentLiabilities !== 0 ? (currentAssets - inventory) / currentLiabilities : 0;
-            const absoluteRatio = currentLiabilities !== 0 ? cash / currentLiabilities : 0;
+    // ✅ Используем функцию getExtendedValue для корректного извлечения данных
+    const inventory = getExtendedValue(currentData, '1210');
+    const inventoryPrev = getExtendedValue(prevData, '1210');
 
-            // Рентабельность
-            const netProfit = parseFloat(currentData['2400']) || 0;
-            const totalAssets = parseFloat(currentData['1600']) || 0;
-            const totalAssetsPrev = parseFloat(prevData['1600']) || 0;
-            const equity = parseFloat(currentData['1300']) || 0;
-            const equityPrev = parseFloat(prevData['1300']) || 0;
+    const receivables = getExtendedValue(currentData, '1230');
+    const receivablesPrev = getExtendedValue(prevData, '1230');
 
-            const avgAssets = (totalAssets + totalAssetsPrev) / 2;
-            const avgEquity = (equity + equityPrev) / 2;
+    const payables = getExtendedValue(currentData, '1520');
+    const payablesPrev = getExtendedValue(prevData, '1520');
 
-            const roa = avgAssets !== 0 ? (netProfit / avgAssets) * 100 : 0;
-            const roe = avgEquity !== 0 ? (netProfit / avgEquity) * 100 : 0;
-            const grossMargin = revenue !== 0 ? ((revenue - cogs) / revenue) * 100 : 0;
-            const netMargin = revenue !== 0 ? (netProfit / revenue) * 100 : 0;
+    const revenue = getExtendedValue(currentData, '2110');
+    const cogs = getExtendedValue(currentData, '2120');
 
-            // Финансовая устойчивость
-            const totalLiabilities = parseFloat(currentData['1400']) || 0 + parseFloat(currentData['1500']) || 0;
-            const autonomy = totalAssets !== 0 ? (equity / totalAssets) * 100 : 0;
-            const leverage = equity !== 0 ? totalAssets / equity : 0;
-            const debtRatio = totalAssets !== 0 ? (totalLiabilities / totalAssets) * 100 : 0;
-            const debtToEquity = equity !== 0 ? totalLiabilities / equity : 0;
+    // Средние значения
+    const avgInventory = (inventory + inventoryPrev) / 2;
+    const avgReceivables = (receivables + receivablesPrev) / 2;
+    const avgPayables = (payables + payablesPrev) / 2;
 
-            let html = '<div class="metrics scroll-container">';
+    // Расчёт ОФЦ
+    const poi = cogs !== 0 ? (365 * avgInventory) / cogs : 0;
+    const ppd = revenue !== 0 ? (365 * avgReceivables) / revenue : 0;
+    const ppa = cogs !== 0 ? (365 * avgPayables) / cogs : 0;
+    const ofc = poi + ppd - ppa;
 
-            html += `
-                <div class="metric-group">
-                    <h4>📊 Операционный финансовый цикл</h4>
-                    <div class="metric-item">
-                        <span class="metric-label">POI (Период оборота запасов)</span>
-                        <span class="metric-value">${formatMetric(poi)} дней</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">PPD (Период погашения ДЗ)</span>
-                        <span class="metric-value">${formatMetric(ppd)} дней</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">PPA (Период оплаты КЗ)</span>
-                        <span class="metric-value">${formatMetric(ppa)} дней</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label"><strong>OFC (Операционный цикл)</strong></span>
-                        <span class="metric-value"><strong>${formatMetric(ofc)} дней</strong></span>
-                    </div>
+    // ✅ Коэффициенты ликвидности
+    const currentAssets = getExtendedValue(currentData, '1200');
+    const currentLiabilities = getExtendedValue(currentData, '1500');
+    const cash = getExtendedValue(currentData, '1250');
+
+    const currentRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0;
+    const quickRatio = currentLiabilities !== 0 ? (currentAssets - inventory) / currentLiabilities : 0;
+    const absoluteRatio = currentLiabilities !== 0 ? cash / currentLiabilities : 0;
+
+    // Прибыльность
+    const netProfit = getExtendedValue(currentData, '2400');
+    const totalAssets = getExtendedValue(currentData, '1600');
+    const totalAssetsPrev = getExtendedValue(prevData, '1600');
+    const equity = getExtendedValue(currentData, '1300');
+    const equityPrev = getExtendedValue(prevData, '1300');
+
+    const avgAssets = (totalAssets + totalAssetsPrev) / 2;
+    const avgEquity = (equity + equityPrev) / 2;
+
+    const roa = avgAssets !== 0 ? (netProfit / avgAssets) * 100 : 0;
+    const roe = avgEquity !== 0 ? (netProfit / avgEquity) * 100 : 0;
+    const grossMargin = revenue !== 0 ? ((revenue - cogs) / revenue) * 100 : 0;
+    const netMargin = revenue !== 0 ? (netProfit / revenue) * 100 : 0;
+
+    // Финансовая устойчивость
+    const totalLiabilities = getExtendedValue(currentData, '1400') + currentLiabilities;
+    const autonomy = totalAssets !== 0 ? (equity / totalAssets) * 100 : 0;
+    const leverage = equity !== 0 ? totalAssets / equity : 0;
+    const debtRatio = totalAssets !== 0 ? (totalLiabilities / totalAssets) * 100 : 0;
+    const debtToEquity = equity !== 0 ? totalLiabilities / equity : 0;
+
+    let html = `
+        <div class="metrics scroll-container">
+            <div class="metric-group">
+                <h4>📦 Операционный финансовый цикл</h4>
+                <div class="metric-item">
+                    <span class="metric-label">POI (Период оборота запасов)</span>
+                    <span class="metric-value">${formatMetric(poi, 0)} дн.</span>
                 </div>
-
-                <div class="metric-group">
-                    <h4>📈 Коэффициенты ликвидности</h4>
-                    <div class="metric-item">
-                        <span class="metric-label">Текущая ликвидность</span>
-                        <span class="metric-value">${formatMetric(currentRatio, 2)}</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">Быстрая ликвидность</span>
-                        <span class="metric-value">${formatMetric(quickRatio, 2)}</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">Абсолютная ликвидность</span>
-                        <span class="metric-value">${formatMetric(absoluteRatio, 2)}</span>
-                    </div>
+                <div class="metric-item">
+                    <span class="metric-label">PPD (Период погашения дебиторской задолженности)</span>
+                    <span class="metric-value">${formatMetric(ppd, 0)} дн.</span>
                 </div>
-
-                <div class="metric-group">
-                    <h4>💰 Рентабельность</h4>
-                    <div class="metric-item">
-                        <span class="metric-label">ROA (на активы)</span>
-                        <span class="metric-value">${formatMetric(roa, 2)}%</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">ROE (на капитал)</span>
-                        <span class="metric-value">${formatMetric(roe, 2)}%</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">Маржа валовой прибыли</span>
-                        <span class="metric-value">${formatMetric(grossMargin, 2)}%</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">Маржа чистой прибыли</span>
-                        <span class="metric-value">${formatMetric(netMargin, 2)}%</span>
-                    </div>
+                <div class="metric-item">
+                    <span class="metric-label">PPA (Период погашения кредиторской задолженности)</span>
+                    <span class="metric-value">${formatMetric(ppa, 0)} дн.</span>
                 </div>
-
-                <div class="metric-group">
-                    <h4>🏢 Финансовая устойчивость</h4>
-                    <div class="metric-item">
-                        <span class="metric-label">Автономия</span>
-                        <span class="metric-value">${formatMetric(autonomy, 2)}%</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">Финансовый леверидж</span>
-                        <span class="metric-value">${formatMetric(leverage, 2)}</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">Коэффициент задолженности</span>
-                        <span class="metric-value">${formatMetric(debtRatio, 2)}%</span>
-                    </div>
-                    <div class="metric-item">
-                        <span class="metric-label">D/E Ratio</span>
-                        <span class="metric-value">${formatMetric(debtToEquity, 2)}</span>
-                    </div>
+                <div class="metric-item">
+                    <span class="metric-label"><strong>OFC (Операционный финансовый цикл)</strong></span>
+                    <span class="metric-value"><strong>${formatMetric(ofc, 0)} дн.</strong></span>
                 </div>
-            `;
+            </div>
 
-            html += '</div>';
-            container.innerHTML = html;
-        }
+            <div class="metric-group">
+                <h4>💧 Коэффициенты ликвидности</h4>
+                <div class="metric-item">
+                    <span class="metric-label">Текущая ликвидность (норма: ≥ 2.0)</span>
+                    <span class="metric-value">${formatMetric(currentRatio, 2)}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Быстрая ликвидность (норма: ≥ 1.0)</span>
+                    <span class="metric-value">${formatMetric(quickRatio, 2)}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Абсолютная ликвидность (норма: ≥ 0.2)</span>
+                    <span class="metric-value">${formatMetric(absoluteRatio, 2)}</span>
+                </div>
+            </div>
+
+            <div class="metric-group">
+                <h4>📊 Показатели прибыльности</h4>
+                <div class="metric-item">
+                    <span class="metric-label">ROA (Рентабельность активов)</span>
+                    <span class="metric-value">${formatMetric(roa, 2)}%</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">ROE (Рентабельность собственного капитала)</span>
+                    <span class="metric-value">${formatMetric(roe, 2)}%</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Валовая рентабельность</span>
+                    <span class="metric-value">${formatMetric(grossMargin, 2)}%</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Чистая рентабельность</span>
+                    <span class="metric-value">${formatMetric(netMargin, 2)}%</span>
+                </div>
+            </div>
+
+            <div class="metric-group">
+                <h4>🏛️ Финансовая устойчивость</h4>
+                <div class="metric-item">
+                    <span class="metric-label">Коэффициент автономии</span>
+                    <span class="metric-value">${formatMetric(autonomy, 2)}%</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Финансовый рычаг</span>
+                    <span class="metric-value">${formatMetric(leverage, 2)}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Коэффициент долга</span>
+                    <span class="metric-value">${formatMetric(debtRatio, 2)}%</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">D/E Ratio</span>
+                    <span class="metric-value">${formatMetric(debtToEquity, 2)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
 
         // Вспомогательные функции
         function showLoading(show) {
@@ -949,6 +964,30 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ✅ ИСПРАВЛЕНИЕ 1: Функция для получения значения из extended формата
+        function getExtendedValue(data, code) {
+            const value = data[code];
+        
+            // Если это объект (extended формат)
+            if (value && typeof value === 'object') {
+                // Для большинства строк используем СумОтч (сумма за отчётный год)
+                if (value.СумОтч !== undefined) {
+                    return parseFloat(value.СумОтч) || 0;
+                }
+                // Для строки 3200 (капитал) используем Итог
+                if (value.Итог !== undefined) {
+                    return parseFloat(value.Итог) || 0;
+                }
+                // Для ОФР (строки 4xxx) используем СумОтч
+                if (value.СумОтч !== undefined) {
+                    return parseFloat(value.СумОтч) || 0;
+                }
+            }
+        
+            // Если это число (обычный формат) - просто возвращаем
+            return parseFloat(value) || 0;
         }
 
         // Обновление подсказки для батч-загрузки
