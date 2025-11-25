@@ -60,13 +60,19 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
     console.log(`[Checko API v2] Отправляемое тело:`, JSON.stringify(body, null, 2));
     
     try {
+        // Формируем данные как application/x-www-form-urlencoded
+        const formData = new URLSearchParams();
+        for (const [key, value] of Object.entries(body)) {
+            formData.append(key, value);
+        }
+        
         const options = {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify(body)
+            body: formData.toString()
         };
 
         const response = await fetch(url, options);
