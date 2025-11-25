@@ -4,15 +4,10 @@
   "description": "Анализатор ОФЦ - Оценка влияния операционного финансового цикла",
   "main": "api/handler.js",
   "scripts": {
-    "start": "node api/handler.js",
-    "dev": "node api/handler.js"
+    "start": "node api/handler.js"
   },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "node-fetch": "^2.6.11"
-  },
+  "dependencies": {},
   "engines": {
-    "node": "22.x"
+    "node": "18.x"
   }
 }
