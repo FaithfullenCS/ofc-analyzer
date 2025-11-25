@@ -25,12 +25,10 @@ class RequestTracker {
         const key = this.getKey(apiKey);
         const today = new Date().toISOString().split('T')[0];
         const data = this.requests.get(key);
-        
         if (!data || data.date !== today) {
             this.requests.set(key, { date: today, count: 1 });
             return 1;
         }
-        
         data.count++;
         return data.count;
     }
@@ -49,23 +47,25 @@ const CHECKO_API_BASE = 'https://api.checko.ru/v2';
 // Helper функция для запросов к Checko API v2
 async function callCheckoAPI(endpoint, apiKey, params = {}) {
     const url = `${CHECKO_API_BASE}${endpoint}`;
-    
+
     // Добавляем ключ в тело запроса
-    const body = {
+    const bodyData = {
         key: apiKey,
         ...params
     };
-    
+
     console.log(`[Checko API v2] POST запрос: ${url}`);
-    console.log(`[Checko API v2] Отправляемое тело:`, JSON.stringify(body, null, 2));
-    
+    console.log(`[Checko API v2] Отправляемое тело:`, JSON.stringify(bodyData, null, 2));
+
     try {
-        // Формируем данные как application/x-www-form-urlencoded
+        // ✅ ИСПРАВЛЕНИЕ: используем paramKey вместо key в цикле
         const formData = new URLSearchParams();
-        for (const [key, value] of Object.entries(body)) {
-            formData.append(key, value);
+        for (const [paramKey, paramValue] of Object.entries(bodyData)) {
+            formData.append(paramKey, paramValue);
         }
-        
+
+        console.log(`[Checko API v2] URL-encoded body: ${formData.toString()}`);
+
         const options = {
             method: 'POST',
             headers: {
@@ -77,7 +77,7 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
 
         const response = await fetch(url, options);
         console.log(`[Checko API v2] Статус ответа: ${response.status}`);
-        
+
         if (!response.ok) {
             let errorBody = '';
             try {
@@ -86,11 +86,21 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
             } catch (e) {
                 console.log(`[Checko API v2] Не удалось прочитать тело ошибки`);
             }
-            
+
+            // Попытка распарсить JSON ошибки
+            let errorData = null;
+            try {
+                errorData = JSON.parse(errorBody);
+            } catch (e) {
+                // Игнорируем
+            }
+
             if (response.status === 401 || response.status === 403) {
                 throw new Error('Неверный API ключ или доступ запрещён');
             } else if (response.status === 429) {
                 throw new Error('Превышен лимит запросов к Checko API');
+            } else if (response.status === 400 && errorData?.meta?.balance === 0) {
+                throw new Error('Баланс API-ключа равен 0. Проверьте баланс на сайте checko.ru или используйте ключ с бесплатным тарифом.');
             } else {
                 throw new Error(`Ошибка API Checko: ${response.status} - ${errorBody || 'Нет деталей'}`);
             }
@@ -99,7 +109,12 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
         const data = await response.json();
         console.log(`[Checko API v2] ✅ Успешный ответ получен`);
         console.log(`[Checko API v2] Структура ответа:`, Object.keys(data));
-        
+
+        // Логируем счетчик запросов из API, если доступен
+        if (data.meta?.today_request_count !== undefined) {
+            console.log(`[Checko API v2] Использовано запросов сегодня: ${data.meta.today_request_count}`);
+        }
+
         return data;
     } catch (error) {
         console.error('[Checko API v2] Ошибка:', error.message);
@@ -152,7 +167,7 @@ module.exports = async (req, res) => {
         if (path.includes('/check-connection')) {
             console.log('[Handler] => check-connection');
             const { apiKey } = body;
-            
+
             if (!apiKey) {
                 return res.status(200).json({
                     status: 'error',
@@ -165,10 +180,10 @@ module.exports = async (req, res) => {
             try {
                 console.log(`[Handler] Проверка ключа с тестовым ИНН: ${testINN}`);
                 const testData = await callCheckoAPI('/company', apiKey, { inn: testINN });
-                
                 console.log(`[Handler] ✅ API ключ валиден`);
-                const requestsUsedToday = tracker.getCount(apiKey);
-                const remainingRequests = tracker.getRemainingRequests(apiKey);
+
+                const requestsUsedToday = testData.meta?.today_request_count || tracker.getCount(apiKey);
+                const remainingRequests = Math.max(0, 100 - requestsUsedToday);
 
                 return res.status(200).json({
                     status: 'ok',
@@ -189,7 +204,7 @@ module.exports = async (req, res) => {
         if (path.includes('/company') && !path.includes('/check-connection')) {
             console.log('[Handler] => company');
             const { apiKey, inn } = body;
-            
+
             if (!apiKey || !inn) {
                 return res.status(200).json({
                     status: 'error',
@@ -201,7 +216,7 @@ module.exports = async (req, res) => {
             if (remainingRequests <= 0) {
                 return res.status(200).json({
                     status: 'error',
-                    message: 'Лимит 100 запросов в день исчерпан',
+                    message: 'Лимит 100 запросов в день исчерпан (локальный счетчик)',
                     requestsUsedToday: 100,
                     remainingRequests: 0
                 });
@@ -210,9 +225,11 @@ module.exports = async (req, res) => {
             try {
                 console.log(`[Handler] Загрузка компании ${inn}`);
                 const data = await callCheckoAPI('/company', apiKey, { inn });
-                
-                const requestsUsedToday = tracker.increment(apiKey);
-                const newRemainingRequests = tracker.getRemainingRequests(apiKey);
+
+                tracker.increment(apiKey);
+
+                const requestsUsedToday = data.meta?.today_request_count || tracker.getCount(apiKey);
+                const newRemainingRequests = Math.max(0, 100 - requestsUsedToday);
 
                 return res.status(200).json({
                     status: 'ok',
@@ -235,7 +252,7 @@ module.exports = async (req, res) => {
         if (path.includes('/finances')) {
             console.log('[Handler] => finances');
             const { apiKey, inn } = body;
-            
+
             if (!apiKey || !inn) {
                 return res.status(200).json({
                     status: 'error',
@@ -247,7 +264,7 @@ module.exports = async (req, res) => {
             if (remainingRequests <= 0) {
                 return res.status(200).json({
                     status: 'error',
-                    message: 'Лимит 100 запросов в день исчерпан',
+                    message: 'Лимит 100 запросов в день исчерпан (локальный счетчик)',
                     requestsUsedToday: 100,
                     remainingRequests: 0
                 });
@@ -255,10 +272,12 @@ module.exports = async (req, res) => {
 
             try {
                 console.log(`[Handler] Загрузка финансов ${inn}`);
-                const data = await callCheckoAPI('/finance', apiKey, { inn });
-                
-                const requestsUsedToday = tracker.increment(apiKey);
-                const newRemainingRequests = tracker.getRemainingRequests(apiKey);
+                const data = await callCheckoAPI('/finances', apiKey, { inn });
+
+                tracker.increment(apiKey);
+
+                const requestsUsedToday = data.meta?.today_request_count || tracker.getCount(apiKey);
+                const newRemainingRequests = Math.max(0, 100 - requestsUsedToday);
 
                 return res.status(200).json({
                     status: 'ok',
@@ -281,7 +300,7 @@ module.exports = async (req, res) => {
         if (path.includes('/batch')) {
             console.log('[Handler] => batch');
             const { apiKey, innList } = body;
-            
+
             if (!apiKey || !Array.isArray(innList) || innList.length === 0) {
                 return res.status(200).json({
                     status: 'error',
@@ -291,7 +310,7 @@ module.exports = async (req, res) => {
 
             const requiredRequests = innList.length * 2;
             const remainingRequests = tracker.getRemainingRequests(apiKey);
-            
+
             if (remainingRequests < requiredRequests) {
                 return res.status(200).json({
                     status: 'error',
@@ -307,13 +326,12 @@ module.exports = async (req, res) => {
             for (const inn of innList) {
                 try {
                     console.log(`[Handler] Батч: загрузка ${inn}...`);
-                    
                     const companyData = await callCheckoAPI('/company', apiKey, { inn });
                     tracker.increment(apiKey);
-                    
-                    const financeData = await callCheckoAPI('/financials', apiKey, { inn });
+
+                    const financeData = await callCheckoAPI('/finances', apiKey, { inn });
                     tracker.increment(apiKey);
-                    
+
                     results.push({
                         inn,
                         company: companyData,
@@ -345,16 +363,15 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error('[Handler] ❌ Критическая ошибка:', error);
-        
+
         let requestsUsedToday = 0;
         let remainingRequests = 100;
-        
+
         try {
-            const catchBody = req.body && typeof req.body === 'string' 
-                ? JSON.parse(req.body) 
+            const catchBody = req.body && typeof req.body === 'string'
+                ? JSON.parse(req.body)
                 : (req.body || {});
-            
-            if (catchBody && catchBody.apiKey) {
+            if (catchBody?.apiKey) {
                 requestsUsedToday = tracker.getCount(catchBody.apiKey);
                 remainingRequests = tracker.getRemainingRequests(catchBody.apiKey);
             }
