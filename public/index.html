@@ -512,37 +512,72 @@
             }
         }
 
-        // Проверка подключения к API
-        async function checkConnection() {
-            saveSettings();
-            
-            const backendUrl = document.getElementById('backendUrl').value.trim();
-            const apiKey = document.getElementById('apiKey').value.trim();
-            
-            if (!backendUrl || !apiKey) {
-                showStatus('connectionStatus', 'error', 'Заполните Backend URL и API ключ');
-                return;
-            }
+       async function checkConnection() {
+    const backendUrl = document.getElementById('backendUrl').value.trim();
+    const apiKey = document.getElementById('apiKey').value.trim();
+    const statusEl = document.getElementById('connectionStatus');
 
-            try {
-                const response = await fetch(`${backendUrl}/api/check-connection`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ apiKey })
-                });
+    if (!backendUrl || !apiKey) {
+        statusEl.innerHTML = '❌ Введите Backend URL и API ключ';
+        statusEl.className = 'status error';
+        return;
+    }
 
-                const data = await response.json();
-                
-                if (data.status === 'ok') {
-                    showStatus('connectionStatus', 'success', '✅ Подключено успешно!');
-                    updateRequestCounter(data.requestsUsedToday || 0, data.remainingRequests || 100);
-                } else {
-                    showStatus('connectionStatus', 'error', '❌ ' + (data.message || 'Ошибка подключения'));
-                }
-            } catch (error) {
-                showStatus('connectionStatus', 'error', '❌ Ошибка сети: ' + error.message);
-            }
+    statusEl.innerHTML = '⏳ Проверка подключения...';
+    statusEl.className = 'status';
+
+    try {
+        // Убираем trailing slash если есть
+        const cleanUrl = backendUrl.replace(/\/$/, '');
+        
+        console.log('Отправка запроса на:', `${cleanUrl}/api/check-connection`);
+        
+        const response = await fetch(`${cleanUrl}/api/check-connection`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ apiKey })
+        });
+
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+        
+        // Получаем текст ответа для отладки
+        const responseText = await response.text();
+        console.log('Response text:', responseText);
+
+        // Пытаемся распарсить как JSON
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (e) {
+            console.error('JSON parse error:', e);
+            throw new Error(`Сервер вернул некорректный ответ: ${responseText.substring(0, 100)}...`);
         }
+
+        console.log('Parsed result:', result);
+
+        if (result.status === 'ok') {
+            statusEl.innerHTML = `✅ ${result.message}`;
+            statusEl.className = 'status success';
+            
+            // Сохраняем настройки
+            localStorage.setItem('backendUrl', backendUrl);
+            localStorage.setItem('apiKey', apiKey);
+            
+            // Обновляем счетчик
+            updateRequestCounter(result.requestsUsedToday, result.remainingRequests);
+        } else {
+            statusEl.innerHTML = `❌ ${result.message}`;
+            statusEl.className = 'status error';
+        }
+    } catch (error) {
+        console.error('Connection error:', error);
+        statusEl.innerHTML = `❌ Ошибка: ${error.message}`;
+        statusEl.className = 'status error';
+    }
+}
 
         // Загрузка одной компании
         async function loadCompany() {
