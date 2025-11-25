@@ -15,11 +15,9 @@ class RequestTracker {
         const key = this.getKey(apiKey);
         const today = new Date().toISOString().split('T')[0];
         const data = this.requests.get(key);
-        
         if (!data || data.date !== today) {
             return 0;
         }
-        
         return data.count;
     }
 
@@ -45,87 +43,61 @@ class RequestTracker {
 
 const tracker = new RequestTracker();
 
-// Базовый URL API Checko
-const CHECKO_API_BASE = 'https://api.checko.ru';
+// Базовый URL API Checko v2
+const CHECKO_API_BASE = 'https://api.checko.ru/v2';
 
-// Helper функция для запросов к Checko API
-// Пробуем разные варианты запросов
-async function callCheckoAPI(endpoint, apiKey, method = 'GET', body = null) {
-    // Пробуем разные варианты URL
-    const variants = [
-        `${CHECKO_API_BASE}${endpoint}`,
-        `${CHECKO_API_BASE}/v1${endpoint}`,
-        `${CHECKO_API_BASE}/api${endpoint}`,
-        `${CHECKO_API_BASE}/api/v1${endpoint}`
-    ];
+// Helper функция для запросов к Checko API v2
+async function callCheckoAPI(endpoint, apiKey, body = {}) {
+    const url = `${CHECKO_API_BASE}${endpoint}`;
     
-    for (const url of variants) {
-        console.log(`[Checko API] Попытка запроса: ${method} ${url}`);
+    console.log(`[Checko API v2] POST запрос: ${url}`);
+    console.log(`[Checko API v2] Body:`, JSON.stringify(body, null, 2));
+    
+    try {
+        const requestBody = {
+            key: apiKey,
+            ...body
+        };
+
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        };
+
+        const response = await fetch(url, options);
+        console.log(`[Checko API v2] Статус ответа: ${response.status}`);
         
-        try {
-            const options = {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            };
-
-            if (body && method === 'POST') {
-                options.body = JSON.stringify(body);
-            }
-
-            const response = await fetch(url, options);
-            
-            console.log(`[Checko API] Статус ответа: ${response.status}`);
-
-            if (response.status === 404) {
-                console.log(`[Checko API] 404 для URL: ${url}, пробуем следующий вариант...`);
-                continue; // Пробуем следующий вариант URL
-            }
-
-            if (!response.ok) {
-                let errorBody = '';
-                try {
-                    errorBody = await response.text();
-                    console.log(`[Checko API] Тело ошибки: ${errorBody}`);
-                } catch (e) {
-                    console.log(`[Checko API] Не удалось прочитать тело ошибки`);
-                }
-
-                if (response.status === 401) {
-                    throw new Error('Неверный API ключ');
-                } else if (response.status === 429) {
-                    throw new Error('Превышен лимит запросов к Checko API');
-                } else if (response.status === 403) {
-                    throw new Error('Доступ запрещён. Проверьте права API ключа');
-                } else {
-                    throw new Error(`Ошибка API Checko: ${response.status} - ${errorBody || 'Нет деталей'}`);
-                }
-            }
-
-            const data = await response.json();
-            console.log(`[Checko API] ✅ Успешный ответ получен с URL: ${url}`);
-            console.log(`[Checko API] Структура ответа:`, Object.keys(data));
-            return data;
-            
-        } catch (error) {
-            if (error.message === 'Неверный API ключ' || 
-                error.message.includes('Превышен лимит') || 
-                error.message.includes('Доступ запрещён')) {
-                // Критические ошибки - не пробуем другие варианты
-                console.error('[Checko API] Критическая ошибка:', error.message);
-                throw error;
+        if (!response.ok) {
+            let errorBody = '';
+            try {
+                errorBody = await response.text();
+                console.log(`[Checko API v2] Тело ошибки: ${errorBody}`);
+            } catch (e) {
+                console.log(`[Checko API v2] Не удалось прочитать тело ошибки`);
             }
             
-            console.log(`[Checko API] Ошибка для ${url}: ${error.message}`);
-            // Продолжаем пробовать другие варианты
+            if (response.status === 401 || response.status === 403) {
+                throw new Error('Неверный API ключ или доступ запрещён');
+            } else if (response.status === 429) {
+                throw new Error('Превышен лимит запросов к Checko API');
+            } else {
+                throw new Error(`Ошибка API Checko: ${response.status} - ${errorBody || 'Нет деталей'}`);
+            }
         }
+
+        const data = await response.json();
+        console.log(`[Checko API v2] ✅ Успешный ответ получен`);
+        console.log(`[Checko API v2] Структура ответа:`, Object.keys(data));
+        
+        return data;
+    } catch (error) {
+        console.error('[Checko API v2] Ошибка:', error.message);
+        throw error;
     }
-    
-    // Если все варианты не сработали
-    throw new Error('Не удалось найти рабочий endpoint Checko API. Проверьте документацию API или свяжитесь с поддержкой Checko.');
 }
 
 // Главный обработчик для Vercel Serverless Function
@@ -166,7 +138,6 @@ module.exports = async (req, res) => {
         }
 
         console.log('[Handler] Body:', JSON.stringify(body, null, 2));
-
         const path = req.url || '';
         console.log('[Handler] Путь:', path);
 
@@ -174,7 +145,7 @@ module.exports = async (req, res) => {
         if (path.includes('/check-connection')) {
             console.log('[Handler] => check-connection');
             const { apiKey } = body;
-
+            
             if (!apiKey) {
                 return res.status(200).json({
                     status: 'error',
@@ -184,21 +155,11 @@ module.exports = async (req, res) => {
 
             // Пробуем тестовый запрос с известным ИНН (Тинькофф)
             const testINN = '7735560386';
-            
             try {
                 console.log(`[Handler] Проверка ключа с тестовым ИНН: ${testINN}`);
-                
-                // Пробуем оба метода: GET и POST
-                let testData = null;
-                try {
-                    testData = await callCheckoAPI(`/company?inn=${testINN}`, apiKey, 'GET');
-                } catch (getError) {
-                    console.log(`[Handler] GET не сработал, пробуем POST`);
-                    testData = await callCheckoAPI(`/company`, apiKey, 'POST', { inn: testINN });
-                }
+                const testData = await callCheckoAPI('/company', apiKey, { inn: testINN });
                 
                 console.log(`[Handler] ✅ API ключ валиден`);
-                
                 const requestsUsedToday = tracker.getCount(apiKey);
                 const remainingRequests = tracker.getRemainingRequests(apiKey);
 
@@ -221,7 +182,7 @@ module.exports = async (req, res) => {
         if (path.includes('/company') && !path.includes('/check-connection')) {
             console.log('[Handler] => company');
             const { apiKey, inn } = body;
-
+            
             if (!apiKey || !inn) {
                 return res.status(200).json({
                     status: 'error',
@@ -241,16 +202,8 @@ module.exports = async (req, res) => {
 
             try {
                 console.log(`[Handler] Загрузка компании ${inn}`);
+                const data = await callCheckoAPI('/company', apiKey, { inn });
                 
-                // Пробуем оба метода
-                let data = null;
-                try {
-                    data = await callCheckoAPI(`/company?inn=${inn}`, apiKey, 'GET');
-                } catch (getError) {
-                    console.log(`[Handler] GET не сработал, пробуем POST`);
-                    data = await callCheckoAPI(`/company`, apiKey, 'POST', { inn });
-                }
-
                 const requestsUsedToday = tracker.increment(apiKey);
                 const newRemainingRequests = tracker.getRemainingRequests(apiKey);
 
@@ -275,7 +228,7 @@ module.exports = async (req, res) => {
         if (path.includes('/finances')) {
             console.log('[Handler] => finances');
             const { apiKey, inn } = body;
-
+            
             if (!apiKey || !inn) {
                 return res.status(200).json({
                     status: 'error',
@@ -295,16 +248,8 @@ module.exports = async (req, res) => {
 
             try {
                 console.log(`[Handler] Загрузка финансов ${inn}`);
+                const data = await callCheckoAPI('/financials', apiKey, { inn });
                 
-                // Пробуем оба метода
-                let data = null;
-                try {
-                    data = await callCheckoAPI(`/finances?inn=${inn}`, apiKey, 'GET');
-                } catch (getError) {
-                    console.log(`[Handler] GET не сработал, пробуем POST`);
-                    data = await callCheckoAPI(`/finances`, apiKey, 'POST', { inn });
-                }
-
                 const requestsUsedToday = tracker.increment(apiKey);
                 const newRemainingRequests = tracker.getRemainingRequests(apiKey);
 
@@ -329,7 +274,7 @@ module.exports = async (req, res) => {
         if (path.includes('/batch')) {
             console.log('[Handler] => batch');
             const { apiKey, innList } = body;
-
+            
             if (!apiKey || !Array.isArray(innList) || innList.length === 0) {
                 return res.status(200).json({
                     status: 'error',
@@ -339,7 +284,7 @@ module.exports = async (req, res) => {
 
             const requiredRequests = innList.length * 2;
             const remainingRequests = tracker.getRemainingRequests(apiKey);
-
+            
             if (remainingRequests < requiredRequests) {
                 return res.status(200).json({
                     status: 'error',
@@ -351,27 +296,17 @@ module.exports = async (req, res) => {
 
             const results = [];
             const errors = [];
-            
+
             for (const inn of innList) {
                 try {
                     console.log(`[Handler] Батч: загрузка ${inn}...`);
                     
-                    let companyData = null;
-                    try {
-                        companyData = await callCheckoAPI(`/company?inn=${inn}`, apiKey, 'GET');
-                    } catch (getError) {
-                        companyData = await callCheckoAPI(`/company`, apiKey, 'POST', { inn });
-                    }
+                    const companyData = await callCheckoAPI('/company', apiKey, { inn });
                     tracker.increment(apiKey);
-
-                    let financeData = null;
-                    try {
-                        financeData = await callCheckoAPI(`/finances?inn=${inn}`, apiKey, 'GET');
-                    } catch (getError) {
-                        financeData = await callCheckoAPI(`/finances`, apiKey, 'POST', { inn });
-                    }
+                    
+                    const financeData = await callCheckoAPI('/financials', apiKey, { inn });
                     tracker.increment(apiKey);
-
+                    
                     results.push({
                         inn,
                         company: companyData,
@@ -408,7 +343,10 @@ module.exports = async (req, res) => {
         let remainingRequests = 100;
         
         try {
-            const catchBody = req.body && typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+            const catchBody = req.body && typeof req.body === 'string' 
+                ? JSON.parse(req.body) 
+                : (req.body || {});
+            
             if (catchBody && catchBody.apiKey) {
                 requestsUsedToday = tracker.getCount(catchBody.apiKey);
                 remainingRequests = tracker.getRemainingRequests(catchBody.apiKey);
