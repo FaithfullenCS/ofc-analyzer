@@ -1,3 +1,4 @@
+// Встроенный crypto модуль Node.js
 const crypto = require('crypto');
 
 // Класс для отслеживания запросов (в памяти)
@@ -137,7 +138,18 @@ module.exports = async (req, res) => {
             }
 
             // Простой запрос для проверки валидности ключа
-            await callCheckoAPI('/company?inn=7735560386', apiKey);
+            // Используем тестовый ИНН Сбербанка (точно существует в базе)
+            try {
+                await callCheckoAPI('/company?inn=7707083893', apiKey);
+            } catch (testError) {
+                // Если ошибка 404, значит ИНН не найден, но ключ валидный
+                // Если ошибка 401, значит ключ невалидный - пробрасываем её
+                if (testError.message === 'Неверный API ключ') {
+                    throw testError;
+                }
+                // Для других ошибок (404, 429 и т.д.) считаем ключ валидным
+                console.log('Test API call result:', testError.message);
+            }
             
             const requestsUsedToday = tracker.getCount(apiKey);
             const remainingRequests = tracker.getRemainingRequests(apiKey);
@@ -289,8 +301,22 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error('Handler error:', error);
-        const requestsUsedToday = body && body.apiKey ? tracker.getCount(body.apiKey) : 0;
-        const remainingRequests = body && body.apiKey ? tracker.getRemainingRequests(body.apiKey) : 100;
+        
+        // Безопасное получение body (может быть undefined в catch)
+        let requestsUsedToday = 0;
+        let remainingRequests = 100;
+        
+        try {
+            // Пытаемся получить body из req
+            const catchBody = req.body && typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+            if (catchBody && catchBody.apiKey) {
+                requestsUsedToday = tracker.getCount(catchBody.apiKey);
+                remainingRequests = tracker.getRemainingRequests(catchBody.apiKey);
+            }
+        } catch (bodyError) {
+            // Если не можем распарсить body, используем значения по умолчанию
+            console.error('Body parsing error in catch:', bodyError);
+        }
 
         return res.status(200).json({
             status: 'error',
