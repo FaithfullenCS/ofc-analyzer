@@ -1,3 +1,4 @@
+// Встроенный crypto модуль Node.js
 const crypto = require('crypto');
 
 // Класс для отслеживания запросов (в памяти)
@@ -51,36 +52,48 @@ const CHECKO_API_BASE = 'https://api.checko.ru';
 async function callCheckoAPI(endpoint, apiKey) {
   const url = `${CHECKO_API_BASE}${endpoint}`;
   
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    }
-  });
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error('Неверный API ключ');
-    } else if (response.status === 404) {
-      throw new Error('Компания не найдена');
-    } else if (response.status === 429) {
-      throw new Error('Превышен лимит запросов к Checko API');
-    } else {
-      throw new Error(`Ошибка API: ${response.status}`);
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Неверный API ключ');
+      } else if (response.status === 404) {
+        throw new Error('Компания не найдена');
+      } else if (response.status === 429) {
+        throw new Error('Превышен лимит запросов к Checko API');
+      } else {
+        throw new Error(`Ошибка API: ${response.status}`);
+      }
     }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Checko API Error:', error);
+    throw error;
   }
-
-  return await response.json();
 }
 
 // Главный обработчик для Vercel Serverless Function
 module.exports = async (req, res) => {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  // Логирование для отладки
+  console.log('Request received:', {
+    method: req.method,
+    url: req.url,
+    headers: req.headers
+  });
+
+  // CORS headers - ВСЕГДА устанавливаем первым делом
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type,Authorization');
 
   // Обработка preflight запросов
   if (req.method === 'OPTIONS') {
@@ -88,22 +101,35 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Парсинг body (если не JSON)
-  let body = req.body;
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch (e) {
-      body = {};
-    }
-  }
-
-  // Маршрутизация по URL
-  const path = req.url || '';
+  // Устанавливаем Content-Type для JSON
+  res.setHeader('Content-Type', 'application/json');
 
   try {
+    // Парсинг body
+    let body = {};
+    
+    if (req.body) {
+      if (typeof req.body === 'string') {
+        try {
+          body = JSON.parse(req.body);
+        } catch (e) {
+          console.error('Body parsing error:', e);
+          body = {};
+        }
+      } else {
+        body = req.body;
+      }
+    }
+
+    console.log('Parsed body:', body);
+
+    // Маршрутизация по URL
+    const path = req.url || '';
+
     // Endpoint: Проверка подключения
-    if (path.includes('/check-connection')) {
+    if (path.includes('/check-connection') || path.includes('/api/check-connection')) {
+      console.log('Check connection endpoint');
+      
       const { apiKey } = body;
 
       if (!apiKey) {
@@ -128,7 +154,9 @@ module.exports = async (req, res) => {
     }
 
     // Endpoint: Загрузка информации о компании
-    if (path.includes('/company')) {
+    if (path.includes('/company') && !path.includes('/check-connection')) {
+      console.log('Company endpoint');
+      
       const { apiKey, inn } = body;
 
       if (!apiKey || !inn) {
@@ -166,6 +194,8 @@ module.exports = async (req, res) => {
 
     // Endpoint: Загрузка финансовых данных
     if (path.includes('/finances')) {
+      console.log('Finances endpoint');
+      
       const { apiKey, inn } = body;
 
       if (!apiKey || !inn) {
@@ -203,6 +233,8 @@ module.exports = async (req, res) => {
 
     // Endpoint: Батч-загрузка нескольких компаний
     if (path.includes('/batch')) {
+      console.log('Batch endpoint');
+      
       const { apiKey, innList } = body;
 
       if (!apiKey || !Array.isArray(innList) || innList.length === 0) {
@@ -256,18 +288,21 @@ module.exports = async (req, res) => {
     }
 
     // Неизвестный endpoint
+    console.log('Unknown endpoint:', path);
     return res.status(404).json({
       status: 'error',
-      message: 'Endpoint не найден'
+      message: `Endpoint не найден: ${path}`
     });
 
   } catch (error) {
-    const requestsUsedToday = body.apiKey ? tracker.getCount(body.apiKey) : 0;
-    const remainingRequests = body.apiKey ? tracker.getRemainingRequests(body.apiKey) : 100;
+    console.error('Handler error:', error);
+    
+    const requestsUsedToday = body && body.apiKey ? tracker.getCount(body.apiKey) : 0;
+    const remainingRequests = body && body.apiKey ? tracker.getRemainingRequests(body.apiKey) : 100;
 
     return res.status(200).json({
       status: 'error',
-      message: error.message,
+      message: error.message || 'Внутренняя ошибка сервера',
       requestsUsedToday,
       remainingRequests
     });
