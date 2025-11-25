@@ -48,17 +48,21 @@ const CHECKO_API_BASE = 'https://api.checko.ru/v2';
 async function callCheckoAPI(endpoint, apiKey, params = {}) {
     const url = `${CHECKO_API_BASE}${endpoint}`;
 
-    // Добавляем ключ в тело запроса
+    // ✅ ИСПРАВЛЕНИЕ: Добавляем extended=true для /finances
     const bodyData = {
         key: apiKey,
         ...params
     };
 
+    // Если это запрос финансов, добавляем extended=true
+    if (endpoint === '/finances' && !bodyData.extended) {
+        bodyData.extended = 'true';
+    }
+
     console.log(`[Checko API v2] POST запрос: ${url}`);
     console.log(`[Checko API v2] Отправляемое тело:`, JSON.stringify(bodyData, null, 2));
 
     try {
-        // ✅ ИСПРАВЛЕНИЕ: используем paramKey вместо key в цикле
         const formData = new URLSearchParams();
         for (const [paramKey, paramValue] of Object.entries(bodyData)) {
             formData.append(paramKey, paramValue);
@@ -87,7 +91,6 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
                 console.log(`[Checko API v2] Не удалось прочитать тело ошибки`);
             }
 
-            // Попытка распарсить JSON ошибки
             let errorData = null;
             try {
                 errorData = JSON.parse(errorBody);
@@ -110,7 +113,6 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
         console.log(`[Checko API v2] ✅ Успешный ответ получен`);
         console.log(`[Checko API v2] Структура ответа:`, Object.keys(data));
 
-        // Логируем счетчик запросов из API, если доступен
         if (data.meta?.today_request_count !== undefined) {
             console.log(`[Checko API v2] Использовано запросов сегодня: ${data.meta.today_request_count}`);
         }
@@ -175,7 +177,6 @@ module.exports = async (req, res) => {
                 });
             }
 
-            // Пробуем тестовый запрос с известным ИНН (Тинькофф)
             const testINN = '7735560386';
             try {
                 console.log(`[Handler] Проверка ключа с тестовым ИНН: ${testINN}`);
@@ -248,9 +249,9 @@ module.exports = async (req, res) => {
             }
         }
 
-        // Endpoint: Загрузка финансовых данных
+        // Endpoint: Загрузка финансовых данных (с extended=true)
         if (path.includes('/finances')) {
-            console.log('[Handler] => finances');
+            console.log('[Handler] => finances (extended mode)');
             const { apiKey, inn } = body;
 
             if (!apiKey || !inn) {
@@ -271,7 +272,8 @@ module.exports = async (req, res) => {
             }
 
             try {
-                console.log(`[Handler] Загрузка финансов ${inn}`);
+                console.log(`[Handler] Загрузка финансов ${inn} (extended=true)`);
+                // extended=true добавляется автоматически в callCheckoAPI
                 const data = await callCheckoAPI('/finances', apiKey, { inn });
 
                 tracker.increment(apiKey);
