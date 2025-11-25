@@ -288,5 +288,3 @@ app.post('/api/batch', async (req, res) => {
   }
 });
 
-// Экспорт для Vercel Serverless
-module.exports = app;
