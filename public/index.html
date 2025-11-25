@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор ОФЦ - Исследование влияния операционного финансового цикла</title>
+    <style>
+        :root {
+            --color-background: #fcfcf9;
+            --color-surface: #fffffe;
+            --color-text: #13343b;
+            --color-text-secondary: #626c71;
+            --color-primary: #21808d;
+            --color-primary-hover: #1d7480;
+            --color-primary-active: #1a6873;
+            --color-secondary: rgba(94, 82, 64, 0.12);
+            --color-secondary-hover: rgba(94, 82, 64, 0.2);
+            --color-border: rgba(94, 82, 64, 0.2);
+            --color-error: #c0152f;
+            --color-success: #21808d;
+            --color-warning: #a84b2f;
+            --color-card-border: rgba(94, 82, 64, 0.12);
+            --radius-base: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --color-background: #1f2121;
+                --color-surface: #262828;
+                --color-text: #f5f5f5;
+                --color-text-secondary: rgba(167, 169, 169, 0.7);
+                --color-primary: #32b8c6;
+                --color-primary-hover: #2da6b2;
+                --color-primary-active: #2996a1;
+                --color-secondary: rgba(119, 124, 124, 0.15);
+                --color-secondary-hover: rgba(119, 124, 124, 0.25);
+                --color-border: rgba(119, 124, 124, 0.3);
+                --color-error: #ff5459;
+                --color-success: #32b8c6;
+                --color-warning: #e68161;
+                --color-card-border: rgba(119, 124, 124, 0.2);
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--color-background);
+            color: var(--color-text);
+            line-height: 1.5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 24px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 320px 1fr 400px;
+            gap: 20px;
+        }
+
+        @media (max-width: 1400px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--color-surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--color-card-border);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .panel h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+
+        .panel h3 {
+            font-size: 14px;
+            margin: 16px 0 8px 0;
+            font-weight: 600;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--color-text-secondary);
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-base);
+            background: var(--color-surface);
+            color: var(--color-text);
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: 2px solid var(--color-primary);
+            border-color: var(--color-primary);
+        }
+
+        textarea {
+            min-height: 100px;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 16px;
+            border: none;
+            border-radius: var(--radius-base);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: var(--color-primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--color-primary-hover);
+        }
+
+        .btn-secondary {
+            background: var(--color-secondary);
+            color: var(--color-text);
+        }
+
+        .btn-secondary:hover {
+            background: var(--color-secondary-hover);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 8px 12px;
+            border-radius: var(--radius-base);
+            font-size: 13px;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .status.success {
+            background: rgba(33, 128, 141, 0.15);
+            color: var(--color-success);
+            border: 1px solid rgba(33, 128, 141, 0.25);
+            display: block;
+        }
+
+        .status.error {
+            background: rgba(192, 21, 47, 0.15);
+            color: var(--color-error);
+            border: 1px solid rgba(192, 21, 47, 0.25);
+            display: block;
+        }
+
+        .counter {
+            background: var(--color-secondary);
+            padding: 16px;
+            border-radius: var(--radius-base);
+            margin-bottom: 16px;
+        }
+
+        .counter-text {
+            font-size: 13px;
+            color: var(--color-text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .counter-value {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            transition: width 0.3s, background 0.3s;
+            background: var(--color-success);
+        }
+
+        .progress-fill.warning {
+            background: var(--color-warning);
+        }
+
+        .progress-fill.danger {
+            background: var(--color-error);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid var(--color-secondary);
+            border-top: 3px solid var(--color-primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        th {
+            background: var(--color-secondary);
+            font-weight: 600;
+            color: var(--color-text-secondary);
+        }
+
+        .metrics {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .metric-group {
+            background: var(--color-secondary);
+            padding: 16px;
+            border-radius: var(--radius-base);
+        }
+
+        .metric-group h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-size: 13px;
+            color: var(--color-text-secondary);
+        }
+
+        .metric-value {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .company-header {
+            background: var(--color-secondary);
+            padding: 16px;
+            border-radius: var(--radius-base);
+            margin-bottom: 16px;
+        }
+
+        .company-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            color: var(--color-text);
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        .company-info {
+            font-size: 13px;
+            color: var(--color-text-secondary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--color-text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .scroll-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .scroll-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .scroll-container::-webkit-scrollbar-track {
+            background: var(--color-secondary);
+            border-radius: 4px;
+        }
+
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: var(--color-border);
+            border-radius: 4px;
+        }
+
+        .scroll-container::-webkit-scrollbar-thumb:hover {
+            background: var(--color-text-secondary);
+        }
+
+        .validation-hint {
+            font-size: 12px;
+            color: var(--color-text-secondary);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Анализатор операционного финансового цикла</h1>
+        
+        <div class="layout">
+            <!-- Левая панель: Настройки и форма -->
+            <div class="panel">
+                <h2>⚙️ Настройки</h2>
+                
+                <div class="form-group">
+                    <label for="backendUrl">Backend URL</label>
+                    <input type="text" id="backendUrl" placeholder="https://your-app.vercel.app">
+                </div>
+
+                <div class="form-group">
+                    <label for="apiKey">API Ключ Checko</label>
+                    <input type="password" id="apiKey" placeholder="Введите ваш API ключ">
+                </div>
+
+                <button class="btn btn-secondary" onclick="checkConnection()">🔄 Проверить подключение</button>
+                <div id="connectionStatus" class="status"></div>
+
+                <h3>📊 Счетчик запросов</h3>
+                <div class="counter">
+                    <div class="counter-text">Использовано сегодня:</div>
+                    <div class="counter-value"><span id="requestsUsed">0</span> / 100</div>
+                    <div class="counter-text">Осталось: <strong id="requestsRemaining">100</strong> запросов</div>
+                    <div class="progress-bar">
+                        <div id="progressBar" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <h3>🔍 Загрузка данных</h3>
+                <div class="form-group">
+                    <label for="inn">ИНН компании</label>
+                    <input type="text" id="inn" placeholder="7735560386" maxlength="12" pattern="[0-9]*">
+                    <div class="validation-hint">Введите 10 или 12 цифр</div>
+                </div>
+
+                <button class="btn btn-primary" onclick="loadCompany()">📥 Загрузить компанию</button>
+
+                <div class="form-group" style="margin-top: 24px;">
+                    <label for="innList">Или список ИНН (по одному в строке)</label>
+                    <textarea id="innList" placeholder="7735560386&#10;7707083893&#10;7707329152"></textarea>
+                    <div class="validation-hint" id="batchHint">Требуется запросов: 0</div>
+                </div>
+
+                <button class="btn btn-primary" onclick="loadBatch()">📋 Загрузить все компании</button>
+
+                <div id="loadingIndicator" class="loading">
+                    <div class="spinner"></div>
+                    <div>Загрузка данных...</div>
+                </div>
+            </div>
+
+            <!-- Средняя панель: Финансовые данные -->
+            <div class="panel">
+                <h2>💼 Финансовые данные</h2>
+                <div id="financialData">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📊</div>
+                        <div>Загрузите данные компании для просмотра финансовых показателей</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правая панель: Результаты анализа -->
+            <div class="panel">
+                <h2>📈 Результаты анализа</h2>
+                <div id="analysisResults">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📈</div>
+                        <div>Анализ появится после загрузки финансовых данных</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Глобальное состояние
+        let currentData = null;
+        let requestsUsed = 0;
+        let remainingRequests = 100;
+
+        // Инициализация при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSettings();
+            updateRequestCounter(0, 100);
+        });
+
+        // Загрузка настроек из localStorage
+        function loadSettings() {
+            const backendUrl = localStorage.getItem('backendUrl') || '';
+            const apiKey = localStorage.getItem('apiKey') || '';
+            document.getElementById('backendUrl').value = backendUrl;
+            document.getElementById('apiKey').value = apiKey;
+        }
+
+        // Сохранение настроек в localStorage
+        function saveSettings() {
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            localStorage.setItem('backendUrl', backendUrl);
+            localStorage.setItem('apiKey', apiKey);
+        }
+
+        // Обновление счетчика запросов
+        function updateRequestCounter(used, remaining) {
+            requestsUsed = used;
+            remainingRequests = remaining;
+            
+            document.getElementById('requestsUsed').textContent = used;
+            document.getElementById('requestsRemaining').textContent = remaining;
+            
+            const percentage = (used / 100) * 100;
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = percentage + '%';
+            
+            progressBar.className = 'progress-fill';
+            if (percentage >= 95) {
+                progressBar.classList.add('danger');
+            } else if (percentage >= 80) {
+                progressBar.classList.add('warning');
+            }
+        }
+
+        // Проверка подключения к API
+        async function checkConnection() {
+            saveSettings();
+            
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            if (!backendUrl || !apiKey) {
+                showStatus('connectionStatus', 'error', 'Заполните Backend URL и API ключ');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${backendUrl}/api/check-connection`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    showStatus('connectionStatus', 'success', '✅ Подключено успешно!');
+                    updateRequestCounter(data.requestsUsedToday || 0, data.remainingRequests || 100);
+                } else {
+                    showStatus('connectionStatus', 'error', '❌ ' + (data.message || 'Ошибка подключения'));
+                }
+            } catch (error) {
+                showStatus('connectionStatus', 'error', '❌ Ошибка сети: ' + error.message);
+            }
+        }
+
+        // Загрузка одной компании
+        async function loadCompany() {
+            const inn = document.getElementById('inn').value.trim();
+            
+            if (!validateINN(inn)) {
+                alert('Введите корректный ИНН (10 или 12 цифр)');
+                return;
+            }
+
+            if (remainingRequests < 2) {
+                alert('Недостаточно запросов. Требуется минимум 2 запроса (информация + финансы)');
+                return;
+            }
+
+            saveSettings();
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+
+            showLoading(true);
+
+            try {
+                // Загрузка информации о компании
+                const companyResponse = await fetch(`${backendUrl}/api/company`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey, inn })
+                });
+
+                const companyData = await companyResponse.json();
+                
+                if (companyData.status !== 'ok') {
+                    throw new Error(companyData.message || 'Ошибка загрузки данных компании');
+                }
+
+                updateRequestCounter(companyData.requestsUsedToday, companyData.remainingRequests);
+
+                // Загрузка финансовых данных
+                const financeResponse = await fetch(`${backendUrl}/api/finances`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey, inn })
+                });
+
+                const financeData = await financeResponse.json();
+                
+                if (financeData.status !== 'ok') {
+                    throw new Error(financeData.message || 'Ошибка загрузки финансовых данных');
+                }
+
+                updateRequestCounter(financeData.requestsUsedToday, financeData.remainingRequests);
+
+                // Объединение данных
+                currentData = {
+                    company: companyData.data,
+                    finances: financeData.data
+                };
+
+                displayFinancialData(currentData);
+                displayAnalysis(currentData);
+
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Загрузка нескольких компаний
+        async function loadBatch() {
+            const innList = document.getElementById('innList').value
+                .split('\n')
+                .map(inn => inn.trim())
+                .filter(inn => inn && validateINN(inn));
+
+            if (innList.length === 0) {
+                alert('Введите корректные ИНН в список');
+                return;
+            }
+
+            const requiredRequests = innList.length * 2;
+            
+            if (remainingRequests < requiredRequests) {
+                alert(`Недостаточно запросов. Требуется: ${requiredRequests}, осталось: ${remainingRequests}`);
+                return;
+            }
+
+            saveSettings();
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${backendUrl}/api/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey, innList })
+                });
+
+                const data = await response.json();
+                
+                if (data.status !== 'ok') {
+                    throw new Error(data.message || 'Ошибка батч-загрузки');
+                }
+
+                updateRequestCounter(data.requestsUsedToday, data.remainingRequests);
+
+                // Отображение первой компании из списка
+                if (data.data && data.data.length > 0) {
+                    currentData = data.data[0];
+                    displayFinancialData(currentData);
+                    displayAnalysis(currentData);
+                }
+
+                alert(`Успешно загружено ${data.data.length} компаний`);
+
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Валидация ИНН
+        function validateINN(inn) {
+            return /^\d{10}$|^\d{12}$/.test(inn);
+        }
+
+        // Отображение финансовых данных
+        function displayFinancialData(data) {
+            const container = document.getElementById('financialData');
+            
+            const companyName = data.company?.data?.name || 'Компания не найдена';
+            const inn = data.company?.data?.inn || '';
+            const status = data.company?.data?.status === '1-' ? 'Активна' : 'Ликвидирована';
+
+            let html = `
+                <div class="company-header">
+                    <h3>${escapeHtml(companyName)}</h3>
+                    <div class="company-info">
+                        <div>ИНН: ${inn}</div>
+                        <div>Статус: ${status}</div>
+                    </div>
+                </div>
+            `;
+
+            if (data.finances?.data) {
+                const years = Object.keys(data.finances.data).filter(key => key !== 'bo.nalog.ru' && key !== 'company');
+                
+                if (years.length > 0) {
+                    html += '<div class="scroll-container">';
+                    html += '<table><thead><tr><th>Показатель</th>';
+                    years.forEach(year => {
+                        html += `<th>${year}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+
+                    // Основные показатели
+                    const indicators = [
+                        { code: '1210', name: 'Запасы' },
+                        { code: '1230', name: 'Дебиторская задолженность' },
+                        { code: '1520', name: 'Кредиторская задолженность' },
+                        { code: '2110', name: 'Выручка' },
+                        { code: '2120', name: 'Себестоимость' },
+                        { code: '2400', name: 'Чистая прибыль' },
+                        { code: '1600', name: 'Итого активы' },
+                        { code: '1300', name: 'Капитал и резервы' }
+                    ];
+
+                    indicators.forEach(indicator => {
+                        html += `<tr><td>${indicator.name}</td>`;
+                        years.forEach(year => {
+                            const value = data.finances.data[year]?.[indicator.code] || 0;
+                            html += `<td>${formatNumber(value)}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table></div>';
+                } else {
+                    html += '<div class="empty-state"><div>Нет данных финансовой отчетности</div></div>';
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        // Отображение результатов анализа
+        function displayAnalysis(data) {
+            const container = document.getElementById('analysisResults');
+            
+            if (!data.finances?.data) {
+                container.innerHTML = '<div class="empty-state"><div>Нет данных для анализа</div></div>';
+                return;
+            }
+
+            const years = Object.keys(data.finances.data).filter(key => key !== 'bo.nalog.ru' && key !== 'company').sort();
+            
+            if (years.length < 2) {
+                container.innerHTML = '<div class="empty-state"><div>Недостаточно данных для анализа (требуется минимум 2 года)</div></div>';
+                return;
+            }
+
+            const latestYear = years[years.length - 1];
+            const previousYear = years[years.length - 2];
+            
+            const currentData = data.finances.data[latestYear];
+            const prevData = data.finances.data[previousYear];
+
+            // Расчет показателей ОФЦ
+            const inventory = parseFloat(currentData['1210']) || 0;
+            const inventoryPrev = parseFloat(prevData['1210']) || 0;
+            const receivables = parseFloat(currentData['1230']) || 0;
+            const receivablesPrev = parseFloat(prevData['1230']) || 0;
+            const payables = parseFloat(currentData['1520']) || 0;
+            const payablesPrev = parseFloat(prevData['1520']) || 0;
+            const revenue = parseFloat(currentData['2110']) || 0;
+            const cogs = parseFloat(currentData['2120']) || 0;
+
+            const avgInventory = (inventory + inventoryPrev) / 2;
+            const avgReceivables = (receivables + receivablesPrev) / 2;
+            const avgPayables = (payables + payablesPrev) / 2;
+
+            const poi = cogs !== 0 ? (365 * avgInventory) / cogs : 0;
+            const ppd = revenue !== 0 ? (365 * avgReceivables) / revenue : 0;
+            const ppa = cogs !== 0 ? (365 * avgPayables) / cogs : 0;
+            const ofc = poi + ppd - ppa;
+
+            // Коэффициенты ликвидности
+            const currentAssets = parseFloat(currentData['1200']) || 0;
+            const currentLiabilities = parseFloat(currentData['1500']) || 0;
+            const cash = parseFloat(currentData['1250']) || 0;
+
+            const currentRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0;
+            const quickRatio = currentLiabilities !== 0 ? (currentAssets - inventory) / currentLiabilities : 0;
+            const absoluteRatio = currentLiabilities !== 0 ? cash / currentLiabilities : 0;
+
+            // Рентабельность
+            const netProfit = parseFloat(currentData['2400']) || 0;
+            const totalAssets = parseFloat(currentData['1600']) || 0;
+            const totalAssetsPrev = parseFloat(prevData['1600']) || 0;
+            const equity = parseFloat(currentData['1300']) || 0;
+            const equityPrev = parseFloat(prevData['1300']) || 0;
+
+            const avgAssets = (totalAssets + totalAssetsPrev) / 2;
+            const avgEquity = (equity + equityPrev) / 2;
+
+            const roa = avgAssets !== 0 ? (netProfit / avgAssets) * 100 : 0;
+            const roe = avgEquity !== 0 ? (netProfit / avgEquity) * 100 : 0;
+            const grossMargin = revenue !== 0 ? ((revenue - cogs) / revenue) * 100 : 0;
+            const netMargin = revenue !== 0 ? (netProfit / revenue) * 100 : 0;
+
+            // Финансовая устойчивость
+            const totalLiabilities = parseFloat(currentData['1400']) || 0 + parseFloat(currentData['1500']) || 0;
+            const autonomy = totalAssets !== 0 ? (equity / totalAssets) * 100 : 0;
+            const leverage = equity !== 0 ? totalAssets / equity : 0;
+            const debtRatio = totalAssets !== 0 ? (totalLiabilities / totalAssets) * 100 : 0;
+            const debtToEquity = equity !== 0 ? totalLiabilities / equity : 0;
+
+            let html = '<div class="metrics scroll-container">';
+
+            html += `
+                <div class="metric-group">
+                    <h4>📊 Операционный финансовый цикл</h4>
+                    <div class="metric-item">
+                        <span class="metric-label">POI (Период оборота запасов)</span>
+                        <span class="metric-value">${formatMetric(poi)} дней</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">PPD (Период погашения ДЗ)</span>
+                        <span class="metric-value">${formatMetric(ppd)} дней</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">PPA (Период оплаты КЗ)</span>
+                        <span class="metric-value">${formatMetric(ppa)} дней</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label"><strong>OFC (Операционный цикл)</strong></span>
+                        <span class="metric-value"><strong>${formatMetric(ofc)} дней</strong></span>
+                    </div>
+                </div>
+
+                <div class="metric-group">
+                    <h4>📈 Коэффициенты ликвидности</h4>
+                    <div class="metric-item">
+                        <span class="metric-label">Текущая ликвидность</span>
+                        <span class="metric-value">${formatMetric(currentRatio, 2)}</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Быстрая ликвидность</span>
+                        <span class="metric-value">${formatMetric(quickRatio, 2)}</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Абсолютная ликвидность</span>
+                        <span class="metric-value">${formatMetric(absoluteRatio, 2)}</span>
+                    </div>
+                </div>
+
+                <div class="metric-group">
+                    <h4>💰 Рентабельность</h4>
+                    <div class="metric-item">
+                        <span class="metric-label">ROA (на активы)</span>
+                        <span class="metric-value">${formatMetric(roa, 2)}%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">ROE (на капитал)</span>
+                        <span class="metric-value">${formatMetric(roe, 2)}%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Маржа валовой прибыли</span>
+                        <span class="metric-value">${formatMetric(grossMargin, 2)}%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Маржа чистой прибыли</span>
+                        <span class="metric-value">${formatMetric(netMargin, 2)}%</span>
+                    </div>
+                </div>
+
+                <div class="metric-group">
+                    <h4>🏢 Финансовая устойчивость</h4>
+                    <div class="metric-item">
+                        <span class="metric-label">Автономия</span>
+                        <span class="metric-value">${formatMetric(autonomy, 2)}%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Финансовый леверидж</span>
+                        <span class="metric-value">${formatMetric(leverage, 2)}</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">Коэффициент задолженности</span>
+                        <span class="metric-value">${formatMetric(debtRatio, 2)}%</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-label">D/E Ratio</span>
+                        <span class="metric-value">${formatMetric(debtToEquity, 2)}</span>
+                    </div>
+                </div>
+            `;
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // Вспомогательные функции
+        function showLoading(show) {
+            const indicator = document.getElementById('loadingIndicator');
+            indicator.className = show ? 'loading active' : 'loading';
+        }
+
+        function showStatus(elementId, type, message) {
+            const element = document.getElementById(elementId);
+            element.className = `status ${type}`;
+            element.textContent = message;
+        }
+
+        function formatNumber(value) {
+            const num = parseFloat(value);
+            if (isNaN(num)) return '0';
+            return num.toLocaleString('ru-RU');
+        }
+
+        function formatMetric(value, decimals = 0) {
+            if (isNaN(value) || !isFinite(value)) return '0';
+            return value.toFixed(decimals);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Обновление подсказки для батч-загрузки
+        document.getElementById('innList').addEventListener('input', (e) => {
+            const innList = e.target.value
+                .split('\n')
+                .map(inn => inn.trim())
+                .filter(inn => inn && validateINN(inn));
+            
+            const required = innList.length * 2;
+            const hint = document.getElementById('batchHint');
+            
+            if (required > remainingRequests) {
+                hint.style.color = 'var(--color-error)';
+                hint.textContent = `Требуется запросов: ${required} (недостаточно, осталось ${remainingRequests})`;
+            } else {
+                hint.style.color = 'var(--color-text-secondary)';
+                hint.textContent = `Требуется запросов: ${required}`;
+            }
+        });
+    </script>
+</body>
+</html>
