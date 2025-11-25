@@ -47,24 +47,27 @@ const tracker = new RequestTracker();
 const CHECKO_API_BASE = 'https://api.checko.ru/v2';
 
 // Helper функция для запросов к Checko API v2
-async function callCheckoAPI(endpoint, apiKey, body = {}) {
+async function callCheckoAPI(endpoint, apiKey, params = {}) {
     const url = `${CHECKO_API_BASE}${endpoint}`;
     
+    // Добавляем ключ в тело запроса
+    const body = {
+        key: apiKey,
+        ...params
+    };
+    
     console.log(`[Checko API v2] POST запрос: ${url}`);
-    console.log(`[Checko API v2] Параметры тела:`, JSON.stringify(body, null, 2));
+    console.log(`[Checko API v2] Отправляемое тело:`, JSON.stringify(body, null, 2));
     
     try {
         const options = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
+                'Accept': 'application/json'
             },
             body: JSON.stringify(body)
         };
-        
-        console.log(`[Checko API v2] Headers:`, JSON.stringify(options.headers, null, 2));
 
         const response = await fetch(url, options);
         console.log(`[Checko API v2] Статус ответа: ${response.status}`);
