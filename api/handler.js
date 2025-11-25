@@ -51,31 +51,20 @@ async function callCheckoAPI(endpoint, apiKey, body = {}) {
     const url = `${CHECKO_API_BASE}${endpoint}`;
     
     console.log(`[Checko API v2] POST запрос: ${url}`);
-    console.log(`[Checko API v2] Исходные параметры:`, JSON.stringify(body, null, 2));
+    console.log(`[Checko API v2] Параметры тела:`, JSON.stringify(body, null, 2));
     
     try {
-        // Формируем тело запроса с ключом
-        const requestBody = {
-            key: apiKey,
-            ...body
-        };
-        
-        // Убираем дублирование ключа если он уже есть в body
-        if (body.key) {
-            delete requestBody.key;
-            requestBody.key = apiKey;
-        }
-        
-        console.log(`[Checko API v2] Отправляемое тело:`, JSON.stringify(requestBody, null, 2));
-
         const options = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(body)
         };
+        
+        console.log(`[Checko API v2] Headers:`, JSON.stringify(options.headers, null, 2));
 
         const response = await fetch(url, options);
         console.log(`[Checko API v2] Статус ответа: ${response.status}`);
