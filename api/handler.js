@@ -1,4 +1,3 @@
-// Встроенный crypto модуль Node.js
 const crypto = require('crypto');
 
 // Класс для отслеживания запросов (в памяти)
