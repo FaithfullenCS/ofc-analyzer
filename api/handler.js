@@ -257,7 +257,7 @@ module.exports = async (req, res) => {
 
             try {
                 console.log(`[Handler] Загрузка финансов ${inn}`);
-                const data = await callCheckoAPI('/financials', apiKey, { inn });
+                const data = await callCheckoAPI('/finance', apiKey, { inn });
                 
                 const requestsUsedToday = tracker.increment(apiKey);
                 const newRemainingRequests = tracker.getRemainingRequests(apiKey);
