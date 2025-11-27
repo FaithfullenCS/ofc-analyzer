@@ -512,72 +512,81 @@
             }
         }
 
-       async function checkConnection() {
-    const backendUrl = document.getElementById('backendUrl').value.trim();
-    const apiKey = document.getElementById('apiKey').value.trim();
-    const statusEl = document.getElementById('connectionStatus');
+        async function parseJsonResponse(response) {
+            const responseText = await response.text();
+            let data;
 
-    if (!backendUrl || !apiKey) {
-        statusEl.innerHTML = '❌ Введите Backend URL и API ключ';
-        statusEl.className = 'status error';
-        return;
-    }
+            try {
+                data = JSON.parse(responseText);
+            } catch (e) {
+                console.error('JSON parse error:', e);
+                throw new Error(`Сервер вернул некорректный ответ (код ${response.status}): ${responseText.substring(0, 100)}...`);
+            }
 
-    statusEl.innerHTML = '⏳ Проверка подключения...';
-    statusEl.className = 'status';
+            if (!response.ok) {
+                const error = new Error(data?.message || `Сервер вернул статус ${response.status}`);
+                error.status = response.status;
+                error.body = data;
+                throw error;
+            }
 
-    try {
-        // Убираем trailing slash если есть
-        const cleanUrl = backendUrl.replace(/\/$/, '');
-        
-        console.log('Отправка запроса на:', `${cleanUrl}/api/check-connection`);
-        
-        const response = await fetch(`${cleanUrl}/api/check-connection`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ apiKey })
-        });
-
-        console.log('Response status:', response.status);
-        console.log('Response headers:', response.headers);
-        
-        // Получаем текст ответа для отладки
-        const responseText = await response.text();
-        console.log('Response text:', responseText);
-
-        // Пытаемся распарсить как JSON
-        let result;
-        try {
-            result = JSON.parse(responseText);
-        } catch (e) {
-            console.error('JSON parse error:', e);
-            throw new Error(`Сервер вернул некорректный ответ: ${responseText.substring(0, 100)}...`);
+            return data;
         }
 
-        console.log('Parsed result:', result);
-
-        if (result.status === 'ok') {
-            statusEl.innerHTML = `✅ ${result.message}`;
-            statusEl.className = 'status success';
-            
-            // Сохраняем настройки
-            localStorage.setItem('backendUrl', backendUrl);
-            localStorage.setItem('apiKey', apiKey);
-            
-            // Обновляем счетчик
-            updateRequestCounter(result.requestsUsedToday, result.remainingRequests);
-        } else {
-            statusEl.innerHTML = `❌ ${result.message}`;
-            statusEl.className = 'status error';
+        function formatErrorMessage(error) {
+            const base = error.message || 'Произошла ошибка';
+            return error.status ? `Ошибка (${error.status}): ${base}` : `Ошибка: ${base}`;
         }
-    } catch (error) {
-        console.error('Connection error:', error);
-        statusEl.innerHTML = `❌ Ошибка: ${error.message}`;
-        statusEl.className = 'status error';
-    }
-}
+
+        async function checkConnection() {
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const statusEl = document.getElementById('connectionStatus');
+
+            if (!backendUrl || !apiKey) {
+                statusEl.innerHTML = '❌ Введите Backend URL и API ключ';
+                statusEl.className = 'status error';
+                return;
+            }
+
+            statusEl.innerHTML = '⏳ Проверка подключения...';
+            statusEl.className = 'status';
+
+            try {
+                // Убираем trailing slash если есть
+                const cleanUrl = backendUrl.replace(/\/$/, '');
+
+                console.log('Отправка запроса на:', `${cleanUrl}/api/check-connection`);
+
+                const response = await fetch(`${cleanUrl}/api/check-connection`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ apiKey })
+                });
+
+                const result = await parseJsonResponse(response);
+
+                statusEl.innerHTML = `✅ ${result.message}`;
+                statusEl.className = 'status success';
+
+                // Сохраняем настройки
+                localStorage.setItem('backendUrl', backendUrl);
+                localStorage.setItem('apiKey', apiKey);
+
+                // Обновляем счетчик
+                updateRequestCounter(result.requestsUsedToday, result.remainingRequests);
+            } catch (error) {
+                console.error('Connection error:', error);
+                statusEl.innerHTML = `❌ ${formatErrorMessage(error)}`;
+                statusEl.className = 'status error';
+
+                if (error.body?.requestsUsedToday !== undefined && error.body?.remainingRequests !== undefined) {
+                    updateRequestCounter(error.body.requestsUsedToday, error.body.remainingRequests);
+                }
+            }
+        }
 
         // Загрузка одной компании
         async function loadCompany() {
@@ -607,11 +616,7 @@
                     body: JSON.stringify({ apiKey, inn })
                 });
 
-                const companyData = await companyResponse.json();
-                
-                if (companyData.status !== 'ok') {
-                    throw new Error(companyData.message || 'Ошибка загрузки данных компании');
-                }
+                const companyData = await parseJsonResponse(companyResponse);
 
                 updateRequestCounter(companyData.requestsUsedToday, companyData.remainingRequests);
 
@@ -622,11 +627,7 @@
                     body: JSON.stringify({ apiKey, inn })
                 });
 
-                const financeData = await financeResponse.json();
-                
-                if (financeData.status !== 'ok') {
-                    throw new Error(financeData.message || 'Ошибка загрузки финансовых данных');
-                }
+                const financeData = await parseJsonResponse(financeResponse);
 
                 updateRequestCounter(financeData.requestsUsedToday, financeData.remainingRequests);
 
@@ -640,7 +641,12 @@
                 displayAnalysis(currentData);
 
             } catch (error) {
-                alert('Ошибка: ' + error.message);
+                console.error('Load company error:', error);
+                if (error.body?.requestsUsedToday !== undefined && error.body?.remainingRequests !== undefined) {
+                    updateRequestCounter(error.body.requestsUsedToday, error.body.remainingRequests);
+                }
+
+                alert(formatErrorMessage(error));
             } finally {
                 showLoading(false);
             }
@@ -678,11 +684,7 @@
                     body: JSON.stringify({ apiKey, innList })
                 });
 
-                const data = await response.json();
-                
-                if (data.status !== 'ok') {
-                    throw new Error(data.message || 'Ошибка батч-загрузки');
-                }
+                const data = await parseJsonResponse(response);
 
                 updateRequestCounter(data.requestsUsedToday, data.remainingRequests);
 
@@ -696,7 +698,13 @@
                 alert(`Успешно загружено ${data.data.length} компаний`);
 
             } catch (error) {
-                alert('Ошибка: ' + error.message);
+                console.error('Batch load error:', error);
+
+                if (error.body?.requestsUsedToday !== undefined && error.body?.remainingRequests !== undefined) {
+                    updateRequestCounter(error.body.requestsUsedToday, error.body.remainingRequests);
+                }
+
+                alert(formatErrorMessage(error));
             } finally {
                 showLoading(false);
             }

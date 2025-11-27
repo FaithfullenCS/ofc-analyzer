@@ -44,6 +44,21 @@ const tracker = new RequestTracker();
 // Базовый URL API Checko v2
 const CHECKO_API_BASE = 'https://api.checko.ru/v2';
 
+function createError(message, statusCode = 500, extra = {}) {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    Object.assign(error, extra);
+    return error;
+}
+
+function jsonError(res, statusCode, message, extra = {}) {
+    return res.status(statusCode).json({
+        status: 'error',
+        message,
+        ...extra
+    });
+}
+
 // Helper функция для запросов к Checko API v2
 async function callCheckoAPI(endpoint, apiKey, params = {}) {
     const url = `${CHECKO_API_BASE}${endpoint}`;
@@ -99,13 +114,13 @@ async function callCheckoAPI(endpoint, apiKey, params = {}) {
             }
 
             if (response.status === 401 || response.status === 403) {
-                throw new Error('Неверный API ключ или доступ запрещён');
+                throw createError('Неверный API ключ или доступ запрещён', 401);
             } else if (response.status === 429) {
-                throw new Error('Превышен лимит запросов к Checko API');
+                throw createError('Превышен лимит запросов к Checko API', 429);
             } else if (response.status === 400 && errorData?.meta?.balance === 0) {
-                throw new Error('Баланс API-ключа равен 0. Проверьте баланс на сайте checko.ru или используйте ключ с бесплатным тарифом.');
+                throw createError('Баланс API-ключа равен 0. Проверьте баланс на сайте checko.ru или используйте ключ с бесплатным тарифом.', 402);
             } else {
-                throw new Error(`Ошибка API Checko: ${response.status} - ${errorBody || 'Нет деталей'}`);
+                throw createError(`Ошибка API Checko: ${response.status} - ${errorBody || 'Нет деталей'}`, response.status || 500);
             }
         }
 
@@ -171,10 +186,7 @@ module.exports = async (req, res) => {
             const { apiKey } = body;
 
             if (!apiKey) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: 'API ключ не предоставлен'
-                });
+                return jsonError(res, 401, 'API ключ не предоставлен');
             }
 
             const testINN = '7735560386';
@@ -194,10 +206,7 @@ module.exports = async (req, res) => {
                 });
             } catch (testError) {
                 console.log(`[Handler] ❌ Ошибка проверки: ${testError.message}`);
-                return res.status(200).json({
-                    status: 'error',
-                    message: `Ошибка подключения: ${testError.message}`
-                });
+                return jsonError(res, testError.statusCode || 500, `Ошибка подключения: ${testError.message}`);
             }
         }
 
@@ -207,17 +216,12 @@ module.exports = async (req, res) => {
             const { apiKey, inn } = body;
 
             if (!apiKey || !inn) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: 'API ключ и ИНН обязательны'
-                });
+                return jsonError(res, 401, 'API ключ и ИНН обязательны');
             }
 
             const remainingRequests = tracker.getRemainingRequests(apiKey);
             if (remainingRequests <= 0) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: 'Лимит 100 запросов в день исчерпан (локальный счетчик)',
+                return jsonError(res, 429, 'Лимит 100 запросов в день исчерпан (локальный счетчик)', {
                     requestsUsedToday: 100,
                     remainingRequests: 0
                 });
@@ -232,6 +236,16 @@ module.exports = async (req, res) => {
                 const requestsUsedToday = data.meta?.today_request_count || tracker.getCount(apiKey);
                 const newRemainingRequests = Math.max(0, 100 - requestsUsedToday);
 
+                const companyData = data?.data;
+                const hasCompanyData = companyData && Object.keys(companyData).length > 0;
+
+                if (!hasCompanyData) {
+                    return jsonError(res, 404, 'Компания не найдена', {
+                        requestsUsedToday,
+                        remainingRequests: newRemainingRequests
+                    });
+                }
+
                 return res.status(200).json({
                     status: 'ok',
                     data,
@@ -240,9 +254,7 @@ module.exports = async (req, res) => {
                 });
             } catch (apiError) {
                 console.log(`[Handler] ❌ Ошибка: ${apiError.message}`);
-                return res.status(200).json({
-                    status: 'error',
-                    message: apiError.message,
+                return jsonError(res, apiError.statusCode || 500, apiError.message, {
                     requestsUsedToday: tracker.getCount(apiKey),
                     remainingRequests: tracker.getRemainingRequests(apiKey)
                 });
@@ -255,17 +267,12 @@ module.exports = async (req, res) => {
             const { apiKey, inn } = body;
 
             if (!apiKey || !inn) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: 'API ключ и ИНН обязательны'
-                });
+                return jsonError(res, 401, 'API ключ и ИНН обязательны');
             }
 
             const remainingRequests = tracker.getRemainingRequests(apiKey);
             if (remainingRequests <= 0) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: 'Лимит 100 запросов в день исчерпан (локальный счетчик)',
+                return jsonError(res, 429, 'Лимит 100 запросов в день исчерпан (локальный счетчик)', {
                     requestsUsedToday: 100,
                     remainingRequests: 0
                 });
@@ -281,6 +288,16 @@ module.exports = async (req, res) => {
                 const requestsUsedToday = data.meta?.today_request_count || tracker.getCount(apiKey);
                 const newRemainingRequests = Math.max(0, 100 - requestsUsedToday);
 
+                const financeData = data?.data;
+                const hasFinances = financeData && Object.keys(financeData).length > 0;
+
+                if (!hasFinances) {
+                    return jsonError(res, 404, 'Финансовая информация не найдена', {
+                        requestsUsedToday,
+                        remainingRequests: newRemainingRequests
+                    });
+                }
+
                 return res.status(200).json({
                     status: 'ok',
                     data,
@@ -289,9 +306,7 @@ module.exports = async (req, res) => {
                 });
             } catch (apiError) {
                 console.log(`[Handler] ❌ Ошибка: ${apiError.message}`);
-                return res.status(200).json({
-                    status: 'error',
-                    message: apiError.message,
+                return jsonError(res, apiError.statusCode || 500, apiError.message, {
                     requestsUsedToday: tracker.getCount(apiKey),
                     remainingRequests: tracker.getRemainingRequests(apiKey)
                 });
@@ -304,19 +319,14 @@ module.exports = async (req, res) => {
             const { apiKey, innList } = body;
 
             if (!apiKey || !Array.isArray(innList) || innList.length === 0) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: 'API ключ и массив ИНН обязательны'
-                });
+                return jsonError(res, 401, 'API ключ и массив ИНН обязательны');
             }
 
             const requiredRequests = innList.length * 2;
             const remainingRequests = tracker.getRemainingRequests(apiKey);
 
             if (remainingRequests < requiredRequests) {
-                return res.status(200).json({
-                    status: 'error',
-                    message: `Недостаточно запросов. Требуется: ${requiredRequests}, осталось: ${remainingRequests}`,
+                return jsonError(res, 429, `Недостаточно запросов. Требуется: ${requiredRequests}, осталось: ${remainingRequests}`, {
                     requestsUsedToday: tracker.getCount(apiKey),
                     remainingRequests
                 });
@@ -331,8 +341,18 @@ module.exports = async (req, res) => {
                     const companyData = await callCheckoAPI('/company', apiKey, { inn });
                     tracker.increment(apiKey);
 
+                    const hasCompany = companyData?.data && Object.keys(companyData.data).length > 0;
+                    if (!hasCompany) {
+                        throw createError('Компания не найдена', 404);
+                    }
+
                     const financeData = await callCheckoAPI('/finances', apiKey, { inn });
                     tracker.increment(apiKey);
+
+                    const hasFinances = financeData?.data && Object.keys(financeData.data).length > 0;
+                    if (!hasFinances) {
+                        throw createError('Финансовая информация не найдена', 404);
+                    }
 
                     results.push({
                         inn,
@@ -341,12 +361,21 @@ module.exports = async (req, res) => {
                     });
                 } catch (error) {
                     console.error(`[Handler] ❌ Ошибка ${inn}: ${error.message}`);
-                    errors.push({ inn, error: error.message });
+                    errors.push({ inn, error: error.message, statusCode: error.statusCode || 500 });
                 }
             }
 
             const requestsUsedToday = tracker.getCount(apiKey);
             const newRemainingRequests = tracker.getRemainingRequests(apiKey);
+
+            if (results.length === 0) {
+                const statusCode = errors[0]?.statusCode || 500;
+                return jsonError(res, statusCode, 'Не удалось загрузить данные ни для одной компании', {
+                    errors,
+                    requestsUsedToday,
+                    remainingRequests: newRemainingRequests
+                });
+            }
 
             return res.status(200).json({
                 status: 'ok',
@@ -358,10 +387,7 @@ module.exports = async (req, res) => {
         }
 
         console.log('[Handler] ❌ Неизвестный endpoint');
-        return res.status(404).json({
-            status: 'error',
-            message: `Endpoint не найден: ${path}`
-        });
+        return jsonError(res, 404, `Endpoint не найден: ${path}`);
 
     } catch (error) {
         console.error('[Handler] ❌ Критическая ошибка:', error);
@@ -381,9 +407,7 @@ module.exports = async (req, res) => {
             console.error('[Handler] Ошибка парсинга body в catch:', bodyError);
         }
 
-        return res.status(200).json({
-            status: 'error',
-            message: error.message || 'Внутренняя ошибка сервера',
+        return jsonError(res, error.statusCode || 500, error.message || 'Внутренняя ошибка сервера', {
             requestsUsedToday,
             remainingRequests
         });
