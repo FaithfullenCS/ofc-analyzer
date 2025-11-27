@@ -196,6 +196,11 @@
             display: block;
         }
 
+        .muted {
+            color: var(--color-text-secondary);
+            font-size: 12px;
+        }
+
         .counter {
             background: var(--color-secondary);
             padding: 16px;
@@ -707,6 +712,99 @@
             return /^\d{10}$|^\d{12}$/.test(inn);
         }
 
+        function extractIndicators(finances) {
+            const indicatorsMap = new Map();
+
+            if (!finances?.data) {
+                return [];
+            }
+
+            const years = Object.keys(finances.data)
+                .filter(key => key !== 'bo.nalog.ru' && key !== 'company')
+                .sort();
+
+            const docSources = [
+                finances.docs,
+                finances.meta?.docs,
+                finances.meta?.data?.docs
+            ];
+
+            const pickName = (meta = {}) => {
+                return meta.Наим
+                    || meta.Наименование
+                    || meta.name
+                    || meta.title
+                    || meta.Показатель
+                    || meta.description
+                    || meta.desc;
+            };
+
+            docSources.forEach(source => {
+                if (!source || typeof source !== 'object') return;
+                Object.entries(source).forEach(([code, meta]) => {
+                    const name = pickName(meta);
+                    if (name) {
+                        indicatorsMap.set(code, name);
+                    }
+                });
+            });
+
+            years.forEach(year => {
+                const yearData = finances.data[year];
+                if (!yearData || typeof yearData !== 'object') return;
+
+                Object.entries(yearData).forEach(([code, value]) => {
+                    if (code === 'bo.nalog.ru' || code === 'company') return;
+                    if (indicatorsMap.has(code)) return;
+
+                    if (value && typeof value === 'object') {
+                        const name = pickName(value);
+                        if (name) {
+                            indicatorsMap.set(code, name);
+                            return;
+                        }
+                    }
+
+                    if (typeof value === 'number' || typeof value === 'string') {
+                        indicatorsMap.set(code, code);
+                    }
+                });
+            });
+
+            return Array.from(indicatorsMap.entries())
+                .map(([code, name]) => ({ code, name: name || code }))
+                .sort((a, b) => a.code.localeCompare(b.code));
+        }
+
+        function findIndicatorCode(indicators, keywords, fallbackCode) {
+            const lowerKeywords = keywords.map(k => k.toLowerCase());
+            const found = indicators.find(indicator => {
+                const name = (indicator.name || '').toLowerCase();
+                return lowerKeywords.some(keyword => name.includes(keyword));
+            });
+
+            if (found) return found.code;
+
+            return indicators.some(ind => ind.code === fallbackCode) ? fallbackCode : null;
+        }
+
+        function resolveMetricCodes(indicators) {
+            return {
+                inventory: findIndicatorCode(indicators, ['запасы'], '1210'),
+                receivables: findIndicatorCode(indicators, ['дебиторск'], '1230'),
+                payables: findIndicatorCode(indicators, ['кредиторск'], '1520'),
+                revenue: findIndicatorCode(indicators, ['выручк'], '2110'),
+                cogs: findIndicatorCode(indicators, ['себестоим'], '2120'),
+                currentAssets: findIndicatorCode(indicators, ['оборотные активы', 'итого по разделу ii'], '1200'),
+                currentLiabilities: findIndicatorCode(indicators, ['краткосрочные обязательства', 'итого по разделу v'], '1500'),
+                longTermLiabilities: findIndicatorCode(indicators, ['долгосрочные обязательства', 'итого по разделу iv'], '1400'),
+                cash: findIndicatorCode(indicators, ['денежные средства', 'денежные эквиваленты'], '1250'),
+                netProfit: findIndicatorCode(indicators, ['чистая прибыль', 'чистый убыток'], '2400'),
+                totalAssets: findIndicatorCode(indicators, ['баланс', 'активы'], '1600'),
+                equity: findIndicatorCode(indicators, ['капитал', 'резервы'], '1300')
+            };
+        }
+
         // ✅ ИСПРАВЛЕНИЕ 2: Исправленная функция displayFinancialData
 function displayFinancialData(data) {
     const container = document.getElementById('financialData');
@@ -732,7 +830,9 @@ function displayFinancialData(data) {
             .filter(key => key !== 'bo.nalog.ru' && key !== 'company')
             .sort();
 
-        if (years.length > 0) {
+        const indicators = extractIndicators(data.finances);
+
+        if (years.length > 0 && indicators.length > 0) {
             html += '<div class="scroll-container">';
             html += '<table><thead><tr><th>Показатель</th>';
 
@@ -742,22 +842,8 @@ function displayFinancialData(data) {
 
             html += '</tr></thead><tbody>';
 
-            const indicators = [
-                { code: '1210', name: 'Запасы' },
-                { code: '1230', name: 'Дебиторская задолженность' },
-                { code: '1250', name: 'Денежные средства' },
-                { code: '1200', name: 'Оборотные активы' },
-                { code: '1520', name: 'Кредиторская задолженность' },
-                { code: '1500', name: 'Краткосрочные обязательства' },
-                { code: '2110', name: 'Выручка' },
-                { code: '2120', name: 'Себестоимость' },
-                { code: '2400', name: 'Чистая прибыль' },
-                { code: '1600', name: 'Активы (баланс)' },
-                { code: '1300', name: 'Капитал и резервы' }
-            ];
-
             indicators.forEach(indicator => {
-                html += `<tr><td>${indicator.name}</td>`;
+                html += `<tr><td><div>${indicator.name}</div><div class="muted">${indicator.code}</div></td>`;
                 years.forEach(year => {
                     const value = getExtendedValue(data.finances.data[year], indicator.code);
                     html += `<td>${formatNumber(value)}</td>`;
@@ -792,24 +878,32 @@ function displayAnalysis(data) {
         return;
     }
 
+    const indicators = extractIndicators(data.finances);
+    const metricCodes = resolveMetricCodes(indicators);
+
     const latestYear = years[years.length - 1];
     const previousYear = years[years.length - 2];
 
     const currentData = data.finances.data[latestYear];
     const prevData = data.finances.data[previousYear];
 
+    const getMetricValue = (yearData, code) => {
+        if (!code) return 0;
+        return getExtendedValue(yearData, code);
+    };
+
     // ✅ Используем функцию getExtendedValue для корректного извлечения данных
-    const inventory = getExtendedValue(currentData, '1210');
-    const inventoryPrev = getExtendedValue(prevData, '1210');
+    const inventory = getMetricValue(currentData, metricCodes.inventory);
+    const inventoryPrev = getMetricValue(prevData, metricCodes.inventory);
 
-    const receivables = getExtendedValue(currentData, '1230');
-    const receivablesPrev = getExtendedValue(prevData, '1230');
+    const receivables = getMetricValue(currentData, metricCodes.receivables);
+    const receivablesPrev = getMetricValue(prevData, metricCodes.receivables);
 
-    const payables = getExtendedValue(currentData, '1520');
-    const payablesPrev = getExtendedValue(prevData, '1520');
+    const payables = getMetricValue(currentData, metricCodes.payables);
+    const payablesPrev = getMetricValue(prevData, metricCodes.payables);
 
-    const revenue = getExtendedValue(currentData, '2110');
-    const cogs = getExtendedValue(currentData, '2120');
+    const revenue = getMetricValue(currentData, metricCodes.revenue);
+    const cogs = getMetricValue(currentData, metricCodes.cogs);
 
     // Средние значения
     const avgInventory = (inventory + inventoryPrev) / 2;
@@ -823,20 +917,20 @@ function displayAnalysis(data) {
     const ofc = poi + ppd - ppa;
 
     // ✅ Коэффициенты ликвидности
-    const currentAssets = getExtendedValue(currentData, '1200');
-    const currentLiabilities = getExtendedValue(currentData, '1500');
-    const cash = getExtendedValue(currentData, '1250');
+    const currentAssets = getMetricValue(currentData, metricCodes.currentAssets);
+    const currentLiabilities = getMetricValue(currentData, metricCodes.currentLiabilities);
+    const cash = getMetricValue(currentData, metricCodes.cash);
 
     const currentRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0;
     const quickRatio = currentLiabilities !== 0 ? (currentAssets - inventory) / currentLiabilities : 0;
     const absoluteRatio = currentLiabilities !== 0 ? cash / currentLiabilities : 0;
 
     // Прибыльность
-    const netProfit = getExtendedValue(currentData, '2400');
-    const totalAssets = getExtendedValue(currentData, '1600');
-    const totalAssetsPrev = getExtendedValue(prevData, '1600');
-    const equity = getExtendedValue(currentData, '1300');
-    const equityPrev = getExtendedValue(prevData, '1300');
+    const netProfit = getMetricValue(currentData, metricCodes.netProfit);
+    const totalAssets = getMetricValue(currentData, metricCodes.totalAssets);
+    const totalAssetsPrev = getMetricValue(prevData, metricCodes.totalAssets);
+    const equity = getMetricValue(currentData, metricCodes.equity);
+    const equityPrev = getMetricValue(prevData, metricCodes.equity);
 
     const avgAssets = (totalAssets + totalAssetsPrev) / 2;
     const avgEquity = (equity + equityPrev) / 2;
@@ -847,7 +941,10 @@ function displayAnalysis(data) {
     const netMargin = revenue !== 0 ? (netProfit / revenue) * 100 : 0;
 
     // Финансовая устойчивость
-    const totalLiabilities = getExtendedValue(currentData, '1400') + currentLiabilities;
+    const longTermLiabilities = getMetricValue(currentData, metricCodes.longTermLiabilities);
+    const liabilitiesBySections = longTermLiabilities + currentLiabilities;
+    const derivedLiabilities = totalAssets !== 0 ? totalAssets - equity : 0;
+    const totalLiabilities = liabilitiesBySections || derivedLiabilities;
     const autonomy = totalAssets !== 0 ? (equity / totalAssets) * 100 : 0;
     const leverage = equity !== 0 ? totalAssets / equity : 0;
     const debtRatio = totalAssets !== 0 ? (totalLiabilities / totalAssets) * 100 : 0;
